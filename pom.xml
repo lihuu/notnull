@@ -1,0 +1,220 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <groupId>io.github.lihuu</groupId>
+    <artifactId>notnull-maven-plugin</artifactId>
+    <version>1.0.0</version>
+    <packaging>maven-plugin</packaging>
+
+    <name>Notnull Maven Plugin</name>
+    <description>Runtime enforcement of org.jetbrains.annotations.NotNull at build time: a bytecode pass that injects the argument and return-value checks a compilation only declared.</description>
+    <url>https://github.com/lihuu/notnull</url>
+
+    <licenses>
+        <license>
+            <name>The Apache License, Version 2.0</name>
+            <url>https://www.apache.org/licenses/LICENSE-2.0.txt</url>
+        </license>
+    </licenses>
+
+    <developers>
+        <developer>
+            <name>lihuu</name>
+            <email>lihu1449488533@outlook.com</email>
+        </developer>
+    </developers>
+
+    <scm>
+        <connection>scm:git:git://github.com/lihuu/notnull.git</connection>
+        <developerConnection>scm:git:ssh://github.com:lihuu/notnull.git</developerConnection>
+        <url>https://github.com/lihuu/notnull</url>
+    </scm>
+
+    <properties>
+        <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+        <!--
+          The plugin runs inside the Maven JVM, and the Maven JVMs in use start at 17. Compiling to 17
+          is what keeps the plugin loadable there; reading a newer *project's* bytecode is ASM's job,
+          not the runtime's, so a Java 25 project is still instrumentable from a Java 17 Maven.
+        -->
+        <maven.compiler.release>17</maven.compiler.release>
+        <maven.version>3.9.9</maven.version>
+        <asm.version>9.11</asm.version>
+        <junit.version>5.12.0</junit.version>
+    </properties>
+
+    <dependencies>
+        <dependency>
+            <groupId>org.apache.maven</groupId>
+            <artifactId>maven-plugin-api</artifactId>
+            <version>${maven.version}</version>
+            <scope>provided</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.apache.maven.plugin-tools</groupId>
+            <artifactId>maven-plugin-annotations</artifactId>
+            <version>3.15.1</version>
+            <scope>provided</scope>
+        </dependency>
+        <!--
+          The only runtime dependency. The pass reads and rewrites class files with ASM; it needs the
+          core module alone (a streaming visitor, not the tree API). Maven ships its own ASM, and a
+          plugin's realm is separate from Maven's core realm, so this version is the one the pass
+          loads, which is why the plugin form does not need the forked JVM the Ant task did.
+        -->
+        <dependency>
+            <groupId>org.ow2.asm</groupId>
+            <artifactId>asm</artifactId>
+            <version>${asm.version}</version>
+        </dependency>
+        <!-- Test-only: the fixture declares its contracts with this annotation. The pass itself
+             never loads the type; it matches the descriptor string. -->
+        <dependency>
+            <groupId>org.jetbrains</groupId>
+            <artifactId>annotations</artifactId>
+            <version>26.1.0</version>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.junit.jupiter</groupId>
+            <artifactId>junit-jupiter</artifactId>
+            <version>${junit.version}</version>
+            <scope>test</scope>
+        </dependency>
+    </dependencies>
+
+    <build>
+        <plugins>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-compiler-plugin</artifactId>
+                <version>3.14.0</version>
+            </plugin>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-surefire-plugin</artifactId>
+                <version>3.5.2</version>
+            </plugin>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-jar-plugin</artifactId>
+                <version>3.4.2</version>
+                <configuration>
+                    <archive>
+                        <manifest>
+                            <addDefaultImplementationEntries>true</addDefaultImplementationEntries>
+                        </manifest>
+                    </archive>
+                </configuration>
+            </plugin>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-plugin-plugin</artifactId>
+                <version>3.15.1</version>
+                <configuration>
+                    <goalPrefix>notnull</goalPrefix>
+                    <requiredJavaVersion>17</requiredJavaVersion>
+                    <requiredMavenVersion>${maven.version}</requiredMavenVersion>
+                </configuration>
+                <executions>
+                    <execution>
+                        <id>default-descriptor</id>
+                        <phase>process-classes</phase>
+                        <goals>
+                            <goal>descriptor</goal>
+                        </goals>
+                    </execution>
+                </executions>
+            </plugin>
+        </plugins>
+    </build>
+
+    <profiles>
+        <!--
+          What Maven Central accepts, and nothing more. Activate with -Pcentral; scripts/publish-central.sh
+          does. Not called "release": a release here is a git tag, and a profile that sounds like the
+          same thing is one someone activates expecting a tag.
+        -->
+        <profile>
+            <id>central</id>
+            <build>
+                <plugins>
+                    <!-- Central refuses a jar that arrives without its sources and javadoc jar, and
+                         there is no way to add them afterwards: the upload is the whole version. -->
+                    <plugin>
+                        <groupId>org.apache.maven.plugins</groupId>
+                        <artifactId>maven-source-plugin</artifactId>
+                        <version>3.3.1</version>
+                        <executions>
+                            <execution>
+                                <id>attach-sources</id>
+                                <goals>
+                                    <goal>jar-no-fork</goal>
+                                </goals>
+                            </execution>
+                        </executions>
+                    </plugin>
+                    <plugin>
+                        <groupId>org.apache.maven.plugins</groupId>
+                        <artifactId>maven-javadoc-plugin</artifactId>
+                        <version>3.11.2</version>
+                        <configuration>
+                            <doclint>none</doclint>
+                            <quiet>true</quiet>
+                        </configuration>
+                        <executions>
+                            <execution>
+                                <id>attach-javadocs</id>
+                                <goals>
+                                    <goal>jar</goal>
+                                </goals>
+                            </execution>
+                        </executions>
+                    </plugin>
+                    <plugin>
+                        <groupId>org.apache.maven.plugins</groupId>
+                        <artifactId>maven-gpg-plugin</artifactId>
+                        <version>3.2.7</version>
+                        <configuration>
+                            <!-- gpgArguments, not a pinentryMode element: this plugin has no such
+                                 parameter, and naming one that does not exist is silently ignored.
+                                 loopback keeps a headless run from waiting on a pinentry dialog. -->
+                            <gpgArguments>
+                                <arg>--pinentry-mode</arg>
+                                <arg>loopback</arg>
+                            </gpgArguments>
+                        </configuration>
+                        <executions>
+                            <execution>
+                                <id>sign-artifacts</id>
+                                <phase>verify</phase>
+                                <goals>
+                                    <goal>sign</goal>
+                                </goals>
+                            </execution>
+                        </executions>
+                    </plugin>
+                    <!-- Used for signing and bundling, never for uploading: scripts/publish-central.sh
+                         assembles the bundle and uploads it through the Portal API, because this
+                         plugin treats its staging directory as a local repository and writes
+                         maven-metadata-local.xml into it, which Central rejects. See
+                         docs/publishing.md. autoPublish=false: a Central version cannot be withdrawn. -->
+                    <plugin>
+                        <groupId>org.sonatype.central</groupId>
+                        <artifactId>central-publishing-maven-plugin</artifactId>
+                        <version>0.7.0</version>
+                        <extensions>true</extensions>
+                        <configuration>
+                            <publishingServerId>central</publishingServerId>
+                            <autoPublish>false</autoPublish>
+                            <waitUntil>validated</waitUntil>
+                        </configuration>
+                    </plugin>
+                </plugins>
+            </build>
+        </profile>
+    </profiles>
+</project>
